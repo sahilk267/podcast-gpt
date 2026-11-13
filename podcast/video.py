@@ -238,7 +238,7 @@ def render_sadtalker(scene: Path, wav: Path, line: dict, seconds: float, output:
 def join_clips(clips: list[Path], dest: Path) -> None:
     playlist = EXPORTS / 'concat.txt'
     # All segments are encoded with identical video/audio settings.
-    playlist.write_text(''.join(f"file '{str(clip.resolve()).replace(chr(39), chr(39)+chr(92)+chr(39))}'\n"
+    playlist.write_text(''.join(f"file '{clip.resolve().as_posix().replace(chr(39), chr(39)+chr(92)+chr(39))}'\n"
                                 for clip in clips), encoding='utf-8')
     run_ffmpeg(['-f', 'concat', '-safe', '0', '-i', str(playlist), '-c', 'copy', '-movflags', '+faststart', str(dest)], timeout=3600)
 
