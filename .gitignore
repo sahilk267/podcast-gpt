@@ -1,0 +1,12 @@
+.venv/
+.venv38/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+data/
+models/
+third_party/
+logs/
+*.log
+.env
+.DS_Store
