@@ -3,7 +3,7 @@ let state=null,activeJob=null,pollTimer=null;
 const $=id=>document.getElementById(id);
 const clean=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const names={aarav:'Aarav',meera:'Meera',kabir:'Kabir'};
-const voiceOptions=[['hi-IN-MadhurNeural','Hindi • Madhur (Male)'],['hi-IN-SwaraNeural','Hindi • Swara (Female)'],['en-IN-PrabhatNeural','English India • Prabhat (Male)'],['en-IN-NeerjaNeural','English India • Neerja (Female)']];
+let voiceOptions=[['hi-IN-MadhurNeural','Hindi • Madhur (Male)'],['hi-IN-SwaraNeural','Hindi • Swara (Female)'],['en-IN-PrabhatNeural','English India • Prabhat (Male)'],['en-IN-NeerjaNeural','English India • Neerja (Female)']];
 const fmt=sec=>`${Math.floor(Math.max(0,sec)/60)}m ${String(Math.floor(Math.max(0,sec)%60)).padStart(2,'0')}s`;
 const notify=message=>{$('notification').textContent=message;window.scrollTo({top:0,behavior:'smooth'});};
 async function api(path,options={}){const r=await fetch(path,options);const body=await r.json().catch(()=>({}));if(!r.ok)throw new Error(typeof body.detail==='string'?body.detail:`HTTP ${r.status}`);return body;}
@@ -31,7 +31,8 @@ function renderScript(){
 }
 function renderCast(){
  $('castGrid').innerHTML=Object.entries(state.speakers).map(([key,sp])=>{
-   const options=voiceOptions.map(([id,label])=>`<option value="${id}" ${id===sp.voice?'selected':''}>${clean(label)}</option>`).join('');
+   const configured=voiceOptions.some(([id])=>id===sp.voice)?voiceOptions:[[sp.voice,sp.voice+' (not verified)'],...voiceOptions];
+   const options=configured.map(([id,label])=>`<option value="${clean(id)}" ${id===sp.voice?'selected':''}>${clean(label)}</option>`).join('');
    return `<article class="cast-card" id="speaker-${key}"><div class="portrait">${sp.has_portrait?`<img src="${sp.portrait_url}?v=${Date.now()}" alt="${clean(sp.name)}"/>`:`<div class="avatar-placeholder">◉</div>`}</div><div class="cast-body"><strong>${clean(sp.name)}</strong><label>Name<input class="sp-name" maxlength="45" value="${clean(sp.name)}"/></label><label>Role<input class="sp-role" maxlength="60" value="${clean(sp.role)}"/></label><label>TTS voice<select class="sp-voice">${options}</select></label><div class="small-inputs"><label>Speed<input class="sp-rate" value="${clean(sp.rate)}" placeholder="+0%"/></label><label>Pitch<input class="sp-pitch" value="${clean(sp.pitch)}" placeholder="+0Hz"/></label></div><label>Portrait image<input type="file" accept="image/png,image/jpeg,image/webp" data-speaker="${key}"/></label></div></article>`;
  }).join('');
  $('castGrid').querySelectorAll('input[type=file]').forEach(el=>el.addEventListener('change',async e=>{
@@ -41,7 +42,7 @@ function renderCast(){
  }));
 }
 function renderVoices(){
- $('voiceRows').innerHTML=state.lines.map((line,i)=>`<div class="voice-row"><b>${i+1}</b><b>${clean(state.speakers[line.speaker].name)}</b><span class="snippet">${clean(line.text)}</span><small>${line.duration!=null?fmt(line.duration):'Missing'} · ${line.audio_origin||'missing'}</small>${line.audio_url?`<audio controls preload="none" src="${clean(line.audio_url)}"></audio>`:''}<div class="voice-controls"><input type="file" data-line="${clean(line.id)}" accept=".wav,.mp3,.m4a" aria-label="Audio for dialogue ${i+1}"/><button class="ghost mini" data-generate="${clean(line.id)}">Generate</button><button class="ghost mini" data-reset="${clean(line.id)}">Reset</button></div></div>`).join('');
+ $('voiceRows').innerHTML=state.lines.map((line,i)=>`<div class="voice-row"><b>${i+1}</b><b>${clean(state.speakers[line.speaker].name)}</b><span class="snippet">${clean(line.text)}</span><small>${line.duration!=null?fmt(line.duration):'Missing'} · ${line.audio_origin||'missing'} · ${line.subtitle_timing||'missing'} subtitles</small>${line.audio_url?`<audio controls preload="none" src="${clean(line.audio_url)}"></audio>`:''}<div class="voice-controls"><input type="file" data-line="${clean(line.id)}" accept=".wav,.mp3,.m4a" aria-label="Audio for dialogue ${i+1}"/><button class="ghost mini" data-generate="${clean(line.id)}">Generate</button><button class="ghost mini" data-reset="${clean(line.id)}">Reset</button></div></div>`).join('');
  $('voiceRows').querySelectorAll('input[type=file]').forEach(el=>el.addEventListener('change',async e=>{
   const f=e.target.files[0];if(!f)return;const data=new FormData();data.append('file',f);
   try{await api(`/api/audio/${el.dataset.line}`,{method:'POST',body:data});notify('Audio uploaded; cached as custom recording.');await load();}
@@ -55,6 +56,43 @@ function renderVoices(){
  $('voiceRows').querySelectorAll('[data-generate]').forEach(el=>el.addEventListener('click',async()=>{
   try{await save();await runJob(`/api/voices/line/${el.dataset.generate}`,{method:'POST'});}catch(err){notify(err.message);}
  }));
+}
+async function refreshVoiceCatalog(){
+ $('voiceCatalogStatus').textContent='Checking live Edge voice catalog…';
+ try{
+  const result=await api('/api/voices/catalog?refresh=true');
+  const selected={};for(const key of Object.keys(names))selected[key]=$(`speaker-${key}`).querySelector('.sp-voice').value;
+  voiceOptions=result.voices.map(v=>[v.id,`${v.locale==='hi-IN'?'Hindi':'English India'} • ${v.id} (${v.gender})`]);
+  for(const key of Object.keys(names)){
+   const select=$(`speaker-${key}`).querySelector('.sp-voice');
+   const options=voiceOptions.some(([id])=>id===selected[key])?voiceOptions:[[selected[key],`${selected[key]} (not on live list)`],...voiceOptions];
+   select.innerHTML=options.map(([id,label])=>`<option value="${clean(id)}">${clean(label)}</option>`).join('');
+   select.value=selected[key];
+  }
+  const hindi=voiceOptions.filter(([id])=>id.startsWith('hi-IN-')).length;
+  $('voiceCatalogStatus').textContent=`Live catalog verified: ${hindi} Hindi voices and ${voiceOptions.length-hindi} Indian-English voices. Click Assign 3 different Hindi voices or choose manually, then Save episode.`;
+ }catch(err){$('voiceCatalogStatus').textContent=`Catalog unavailable: ${err.message}. Current selections preserved; upload recordings if TTS fails.`;}
+}
+function assignDistinctHindiVoices(){
+ const hindi=voiceOptions.map(([id])=>id).filter(id=>id.startsWith('hi-IN-'));
+ const female=hindi.filter(id=>/Swara|Ananya|Aarti|Kavya/i.test(id));
+ const male=hindi.filter(id=>/Madhur|Aarav|Arjun|Kunal|Rehaan/i.test(id));
+ if(male.length<2||female.length<1){notify('Cannot select 3 distinct Hindi voices from the current catalog. Click Check live Hindi voices; if still unavailable, upload a third voice.');return;}
+ const primary=male.includes('hi-IN-MadhurNeural')?'hi-IN-MadhurNeural':male[0];
+ const third=male.find(id=>id!==primary);
+ const expert=female.includes('hi-IN-SwaraNeural')?'hi-IN-SwaraNeural':female[0];
+ for(const [key,id] of Object.entries({aarav:primary,meera:expert,kabir:third})){
+  const selector=$(`speaker-${key}`).querySelector('.sp-voice');
+  if(![...selector.options].some(option=>option.value===id))selector.add(new Option(id,id));
+  selector.value=id;
+ }
+ notify('Three distinct Hindi voice IDs selected. Save episode, generate 1 short preview per speaker and listen before rendering; these have not been network-tested by us.');
+}
+async function checkPreflight(){
+ try{const p=await api('/api/preflight');const seconds=fmt(p.total_recorded_seconds);
+  const issue=p.warnings.length?p.warnings.map(x=>'• '+x).join('\n'):'No known readiness warnings.';
+  $('preflightStatus').textContent=`${p.audio_ready}/${p.lines} audio takes, ${p.word_timed_lines} word-timed lines, ${p.portraits_ready.length}/3 portraits, recorded duration ${seconds}.\n${issue}`;
+ }catch(err){$('preflightStatus').textContent=err.message;}
 }
 async function renderProjects(){const listing=await api('/api/projects');$('projectSelect').innerHTML=listing.projects.map(p=>`<option value="${clean(p.id)}" ${p.id===listing.active_id?'selected':''}>${clean(p.title)}</option>`).join('');}
 function showStatus(){
@@ -75,7 +113,7 @@ async function watchJob(id){
   if(!busy){clearInterval(pollTimer);pollTimer=null;activeJob=null;
    if(j.state==='error')notify('Job error: '+j.message+'\nSee terminal output. Completed video clips remain cached.');
    else if(j.state==='done'){
-    if(j.result?.video_url){$('result').innerHTML=`<h3>Video complete</h3><video controls preload="metadata" src="${clean(j.result.video_url)}"></video><p><a href="${clean(j.result.video_url)}" download="${clean(j.result.filename)}">Download MP4</a> · <a href="${clean(j.result.subtitle_url)}" download>Download SRT subtitles</a></p><p>Duration: ${fmt(j.result.duration_seconds)}</p>`;showTab('produce');}
+    if(j.result?.video_url){$('result').innerHTML=`<h3>Video complete</h3><video controls preload="metadata" src="${clean(j.result.video_url)}"></video><p><a href="${clean(j.result.video_url)}" download="${clean(j.result.filename)}">Download MP4</a> · <a href="${clean(j.result.subtitle_url)}" download>Download SRT subtitles</a></p><p>Duration: ${fmt(j.result.duration_seconds)} · ${j.result.word_timed_lines||0} lines use actual word timestamps; remaining captions use estimated timing.</p>`;showTab('produce');}
     else notify('Audio generated.');
    }else if(j.state==='cancelled')notify('Job stopped. Start render again to use cached dialogue clips.');
    await load();
@@ -103,8 +141,11 @@ document.addEventListener('DOMContentLoaded',async()=>{
  $('copyPrompt').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(scriptPrompt());notify('Detailed ChatGPT script prompt copied. Paste it into ChatGPT, then import the generated speaker lines.');}catch(err){notify('Cannot access clipboard: '+err.message);}});
  $('toggleImport').addEventListener('click',()=>{$('importBox').hidden=!$('importBox').hidden;});
  $('doImport').addEventListener('click',()=>{if(!confirm('Replace all current dialogue turns with imported text?'))return;try{const result=importDialogue($('importText').value);$('dialogues').replaceChildren(...result.map(lineNode));reindex();$('importBox').hidden=true;notify(`${result.length} dialogue turns imported. Save episode to apply.`);}catch(err){notify(err.message);}});
+ $('loadVoiceCatalog').addEventListener('click',refreshVoiceCatalog);
+ $('autoVoices').addEventListener('click',assignDistinctHindiVoices);
+ $('checkPreflight').addEventListener('click',checkPreflight);
  $('generateVoices').addEventListener('click',async()=>{try{await save();await runJob('/api/voices',{method:'POST'});}catch(e){notify(e.message);}});
- $('render').addEventListener('click',async()=>{try{await save();await runJob('/api/render',jsonOptions({mode:document.querySelector('[name=mode]:checked').value,quality:$('quality').value}));}catch(e){notify(e.message);}});
+ $('render').addEventListener('click',async()=>{try{await save();await runJob('/api/render',jsonOptions({mode:document.querySelector('[name=mode]:checked').value,quality:$('quality').value,offline_only:$('offlineOnly').checked}));}catch(e){notify(e.message);}});
  $('cancelJob').addEventListener('click',async()=>{if(activeJob)try{await api(`/api/job/${activeJob}/cancel`,{method:'POST'});notify('Cancellation requested; current dialogue finishes first.');}catch(e){notify(e.message);}});
  try{await load();}catch(e){notify('Cannot start local dashboard: '+e.message);}
 });

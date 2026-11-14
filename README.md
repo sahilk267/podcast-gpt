@@ -83,3 +83,10 @@ The tests include isolated project saves, input validation, API smoke tests and 
 Use AI-generated original or consented likenesses and voice recordings. Check portrait/voice/model terms before publishing or monetizing. Clearly disclose fictional AI presenters. A fictional educator is not a real licensed medical professional. Sex education episodes should be respectful, non-graphic and based on reliable medical information.
 
 MIT license covers this project's code only, not third-party models, user-provided media, TTS provider rights or model weights.
+
+## V2.2 Alpha update — live voices, word-timed subtitles and offline checks
+
+- In **Characters**, click **Check live Hindi voices**. This tests which Hindi and Indian-English voice IDs the unofficial Edge TTS endpoint *currently* returns. If the catalog includes 2 distinct Hindi male voices and 1 female voice, **Assign 3 different Hindi voices** can populate three distinct speaker voice IDs; **save** and preview audio first. The Microsoft Azure catalog and unofficial Edge catalog are not guaranteed identical.
+- Newly generated Edge TTS clips can include word-boundary timestamps used for more accurate **SRT subtitles**. Preexisting/custom audio without metadata uses proportional estimates; it is not forced alignment.
+- In **Produce**, use **Check episode readiness** to see missing audio, duplicate voice IDs, portrait coverage and word-timing availability. **Offline-only export** uses existing audio only, rejecting any missing dialogue rather than contacting Edge TTS.
+- This release still **does not guarantee** realistic full-length neural lip-sync or fully automatic script/image generation on a CPU-only PC. SadTalker remains an explicitly experimental optional engine. Read [`docs/V22_RELEASE_NOTES.md`](docs/V22_RELEASE_NOTES.md) for limitations and a practical acceptance test.
