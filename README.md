@@ -30,14 +30,14 @@ Existing `data/project.json` plus old audio/portraits/clips are **copied**, not 
 2. **Script:** click **Copy 10-minute AI script prompt**, send it to ChatGPT, review/fact-check the response. Paste conversation lines as `Aarav: ...`, `Meera: ...`, `Kabir: ...` in **Import speaker dialogue**, then Save. Choose **Wide** or **Focus** shot per turn and pause after turns.
 3. **Characters:** upload one front-facing licensed/authorized fictional portrait per speaker; edit names/roles and voice presets. External image generator required.
 4. **Voices:** use **Generate missing audio**, individual **Generate** buttons, or manually **upload a WAV/MP3/M4A** per line. Replacing a script line or profile automatically changes its cache key; Reset removes an existing take. Edge-based online speech requires internet and is unofficial/unreliable for long-term service guarantees.
-5. **Produce:** choose **Static** for dependable CPU playback, **CPU mouth motion** for a visual-only audio-reactive approximation, or **SadTalker AI (experimental)** for genuine neural talking face inference. Export 720p or upscaled 1080p MP4 plus dialogue-level SRT captions. Preview MP4 in browser.
+5. **Produce:** choose **Static** for dependable CPU playback, **CPU mouth motion** for a visual-only audio-reactive approximation, or **SadTalker AI (experimental)** for genuine neural talking face inference. Export 720p or upscaled 1080p MP4 plus word-timed SRT where metadata is available (estimated otherwise). Preview MP4 in browser.
 6. If a render is interrupted or fails, retry the **same unchanged project/mode/quality** to reuse already completed dialogue clips.
 
 **Actual podcast duration** is calculated from generated/uploaded audio **plus inter-dialogue pauses**. Target length is a comparison, not an automatic duration guarantee. Continue editing until near 10 minutes.
 
 ### Voice reality
 
-By default Hindi has **Madhur male** and **Swara female** Edge neural voice identities. The third male Kabir uses a modified Madhur voice by default; this is **not** an independent third identity. A different English-India voice is selectable but may not pronounce Hindi accurately. For three unmistakably distinct Hindi voices, upload custom third-speaker audio or use a properly licensed external provider. Never clone real people's voices without consent.
+The starter episode configures **Madhur** for Aarav, **Swara** for Meera, and modified **Madhur** for Kabir—so its default is **not three independent voice identities**. Microsoft now lists additional Hindi Neural voice IDs, but the unofficial Edge route may not expose all of them. In Characters click **Check live Hindi voices**; only if the returned inventory offers two distinct Hindi male voices and one female voice, click **Assign 3 different Hindi voices**, save, then test each line. Otherwise import authorized custom speech. Never clone real people's voices without consent.
 
 ## What this project can and cannot do
 
@@ -46,12 +46,12 @@ By default Hindi has **Madhur male** and **Swara female** Edge neural voice iden
 | Multi-episode saving and V1 backup migration | Yes |
 | Script editor, ChatGPT prompt export, bulk dialogue import | Yes; no built-in LLM |
 | 3 portrait uploads + editable character names | Yes; no image generator |
-| Online Hindi TTS and custom speech imports | Yes; two standard Hindi voices |
+| Online Hindi TTS and custom speech imports | Yes; live catalog varies, imported voices supported |
 | Speaker-directed close-up/wide composition | Yes; pictures, not multi-camera footage |
 | True natural 3-person AI lip-sync | **Not guaranteed**; optional unverified SadTalker |
 | CPU mouth motion | Approximation, not accurate lip-sync |
 | 720p / 1080p export, 24 FPS | Yes; 1080p upscale of 960×540 scenes |
-| Dialogue SRT + editable pauses | Yes; not word-level captions |
+| Dialogue SRT + editable pauses | Word-level for new Edge metadata; estimated for uploads/old clips |
 | Render retry with finished clips cached | Yes; cancellation between turns |
 | Automatic fact-checked 10-minute video with one click | **Not implemented** |
 
@@ -83,3 +83,10 @@ The tests include isolated project saves, input validation, API smoke tests and 
 Use AI-generated original or consented likenesses and voice recordings. Check portrait/voice/model terms before publishing or monetizing. Clearly disclose fictional AI presenters. A fictional educator is not a real licensed medical professional. Sex education episodes should be respectful, non-graphic and based on reliable medical information.
 
 MIT license covers this project's code only, not third-party models, user-provided media, TTS provider rights or model weights.
+
+## V2.2 Alpha update — live voices, word-timed subtitles and offline checks
+
+- In **Characters**, click **Check live Hindi voices**. This tests which Hindi and Indian-English voice IDs the unofficial Edge TTS endpoint *currently* returns. If the catalog includes 2 distinct Hindi male voices and 1 female voice, **Assign 3 different Hindi voices** can populate three distinct speaker voice IDs; **save** and preview audio first. The Microsoft Azure catalog and unofficial Edge catalog are not guaranteed identical.
+- Newly generated Edge TTS clips can include word-boundary timestamps used for more accurate **SRT subtitles**. Preexisting/custom audio without metadata uses proportional estimates; it is not forced alignment.
+- In **Produce**, use **Check episode readiness** to see missing audio, duplicate voice IDs, portrait coverage and word-timing availability. **Offline-only export** uses existing audio only, rejecting any missing dialogue rather than contacting Edge TTS.
+- This release still **does not guarantee** realistic full-length neural lip-sync or fully automatic script/image generation on a CPU-only PC. SadTalker remains an explicitly experimental optional engine. Read [`docs/V22_RELEASE_NOTES.md`](docs/V22_RELEASE_NOTES.md) for limitations and a practical acceptance test.

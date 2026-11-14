@@ -18,7 +18,8 @@ from PIL import Image,ImageOps,UnidentifiedImageError
 from .settings import BASE,DATA,SPEAKERS
 from .workspace import active_workspace,choose_workspace,list_workspaces,new_workspace,get_workspace
 from .project import load_project,save_project
-from .voice import audio_paths,synthesize_line,wav_length,set_uploaded_audio,reset_line_audio,uploaded_marker
+from .voice import (audio_paths,synthesize_line,wav_length,set_uploaded_audio,reset_line_audio,
+                    uploaded_marker,load_alignment,voice_catalog)
 from .video import (ffmpeg_path,sadtalker_ready,scene_image,render_static,render_motion,
                     render_sadtalker,join_clips,output_name)
 from .subtitles import write_srt
@@ -36,6 +37,7 @@ _active:str|None=None
 class RenderRequest(BaseModel):
     mode:Literal['static','motion','ai']='static'
     quality:Literal['720p','1080p']='720p'
+    offline_only:bool=False
 
 class CreateProject(BaseModel):
     title:str=Field(min_length=1,max_length=120)
@@ -142,6 +144,7 @@ def get_project():
         line['audio_url']=file_link(ws,'wav',wav.name) if duration else None
         line['audio_origin']='uploaded' if uploaded_marker(wav).exists() else ('tts' if duration else 'missing')
         line['duration']=duration
+        line['subtitle_timing']='edge-word-timed' if duration and load_alignment(wav) else ('estimated' if duration else 'missing')
         total+=duration or 0
         total+=float(line.get('pause_after',0)) if duration is not None else 0
     p['duration_seconds']=round(total,2)
@@ -205,6 +208,48 @@ def reset_audio(line_id:str):
     return {'ok':True}
 
 
+@app.get('/api/voices/catalog')
+def get_voice_catalog(refresh:bool=False):
+    try:
+        return voice_catalog(refresh=refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=(
+            f'Cannot load live Edge voice catalog: {str(exc)[:200]}. '
+            'Existing voices and custom audio still work.')) from exc
+
+
+@app.get('/api/preflight')
+def preflight():
+    ws=active_workspace(); project=load_project(ws)
+    missing=[]; timed=0; total=0.0; source={}
+    for index,line in enumerate(project['lines'],1):
+        _,wav=audio_paths(line,project['speakers'][line['speaker']],ws)
+        if not wav.is_file() or wav.stat().st_size<2000:
+            missing.append({'turn':index,'id':line['id'],'speaker':line['speaker']})
+            continue
+        try:
+            total+=wav_length(wav)+float(line.get('pause_after',0))
+            if load_alignment(wav):timed+=1
+            source[line['id']]='uploaded' if uploaded_marker(wav).exists() else 'edge-tts'
+        except (OSError,EOFError,ValueError):
+            missing.append({'turn':index,'id':line['id'],'speaker':line['speaker']})
+    portraits=[key for key in SPEAKERS if (ws.images/f'{key}.png').is_file()]
+    voice_ids={key:profile['voice'] for key,profile in project['speakers'].items()}
+    duplicates=sorted(set(x for x in voice_ids.values() if list(voice_ids.values()).count(x)>1))
+    warnings=[]
+    if duplicates:warnings.append('Some speakers share the same TTS voice. Select unique voices from verified catalog or upload separate audio.')
+    if missing:warnings.append('Missing dialogue audio. Offline-only export requires every line to have an audio take.')
+    if len(portraits)<3:warnings.append('One or more portraits missing; illustrated placeholders will be used in non-neural modes.')
+    if timed<len(project['lines']):warnings.append('Not every line has actual word-level metadata; the other SRT cues will use estimated timings.')
+    if not sadtalker_ready():warnings.append('Neural lip-sync backend is not installed and has not been validated on this PC.')
+    return {'project_id':ws.id,'lines':len(project['lines']),
+            'audio_ready':len(project['lines'])-len(missing),'missing_audio':missing,
+            'word_timed_lines':timed,'total_recorded_seconds':round(total,2),
+            'target_seconds':round(project['target_minutes']*60,2),
+            'portraits_ready':portraits,'configured_voices':voice_ids,
+            'duplicate_voice_ids':duplicates,'warnings':warnings}
+
+
 @app.post('/api/voices')
 def generate_voices():
     ws=active_workspace();p=load_project(ws)
@@ -239,25 +284,31 @@ def render_key(project:dict,line:dict,ws,mode:str,quality:str)->str:
         path=ws.images/f'{speaker}.png'
         stats.append((speaker,path.stat().st_size,path.stat().st_mtime_ns) if path.exists() else (speaker,0,0))
     wavstat=wav.stat()
-    value=[project['title'],project['speakers'],line,mode,quality,stats,wavstat.st_size,wavstat.st_mtime_ns,'v2.1']
+    value=[project['title'],project['speakers'],line,mode,quality,stats,wavstat.st_size,wavstat.st_mtime_ns,'v2.2']
     return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:18]
 
 
 @app.post('/api/render')
 def start_render(request:RenderRequest):
     ws=active_workspace();p=load_project(ws)
+    if request.offline_only:
+        report=preflight()
+        if report['missing_audio']:
+            raise HTTPException(409,detail=(
+                f'{len(report["missing_audio"])} dialogues need audio. Generate voices or upload recordings before offline-only export.'))
     if request.mode=='ai':
         if not sadtalker_ready():raise HTTPException(400,detail='Neural backend unavailable. Run INSTALL_AI.bat.')
         missing=[key for key in SPEAKERS if not (ws.images/f'{key}.png').is_file()]
         if missing:raise HTTPException(400,detail='Missing portraits: '+', '.join(missing))
     def work(jid):
-        clips=[];durations=[];count=len(p['lines'])
+        clips=[];durations=[];alignments=[];count=len(p['lines'])
         for i,line in enumerate(p['lines']):
             if cancelled(jid):raise InterruptedError()
             _job_update(jid,progress=round(95*i/count),message=f'Video {i+1}/{count} · {line["speaker"]} · {request.mode}')
             profile=p['speakers'][line['speaker']]
             wav,seconds=synthesize_line(line,profile,ws)
             durations.append(seconds)
+            alignments.append(load_alignment(wav))
             key=render_key(p,line,ws,request.mode,request.quality)
             clip=ws.clips/f'{line["id"]}-{key}.mp4'
             if not clip.exists() or clip.stat().st_size<1000:
@@ -283,11 +334,12 @@ def start_render(request:RenderRequest):
             temp.replace(dest)
         finally:temp.unlink(missing_ok=True)
         srt=write_srt(dest.with_suffix('.srt'),p['lines'],durations,
-                      {k:s['name'] for k,s in p['speakers'].items()})
+                      {k:s['name'] for k,s in p['speakers'].items()},alignments=alignments)
         return {'video_url':file_link(ws,'exports',dest.name),
                 'subtitle_url':file_link(ws,'exports',srt.name),
                 'filename':dest.name,'size_mb':round(dest.stat().st_size/1048576,1),
-                'duration_seconds':round(sum(durations)+sum(float(x.get('pause_after',0)) for x in p['lines']),1)}
+                'duration_seconds':round(sum(durations)+sum(float(x.get('pause_after',0)) for x in p['lines']),1),
+                'word_timed_lines':sum(bool(words) for words in alignments)}
     return schedule(f'Render {request.mode} {request.quality}',work)
 
 
@@ -314,4 +366,4 @@ def health():
     try: ffmpeg=Path(ffmpeg_path()).exists()
     except Exception:ffmpeg=False
     return {'ok':True,'system':platform.platform(),'ffmpeg':ffmpeg,
-            'sadtalker_installed_not_validated':sadtalker_ready(),'version':'2.1-alpha','mode':'local-only'}
+            'sadtalker_installed_not_validated':sadtalker_ready(),'version':'2.2-alpha','mode':'local-only'}
